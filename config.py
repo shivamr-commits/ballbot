@@ -25,3 +25,45 @@ DIR = [-1, -1, -1]
 ANGLE = [90, 210, 330]
 
 DEG_PER_UNIT = 15   # servo degrees at a corner for a full tilt command of 1.0
+
+# ==============================================================================
+# Camera Defaults
+# ==============================================================================
+CAM_DEV    = 0      # default camera device index (/dev/video0)
+CAM_WIDTH  = 640    # capture width
+CAM_HEIGHT = 480    # capture height
+CAM_FPS    = 30     # requested capture FPS
+
+# ==============================================================================
+# State Estimator (Kalman Filter) Parameters
+# ==============================================================================
+# Process noise (acceleration disturbance variance):
+# Higher = more responsive to fast movements, lower = smoother velocity
+EST_PROCESS_NOISE = 6.0
+
+# Measurement noise variance (in normalized plate units^2):
+# Higher = filter trusts measurements less (filters out pixel jitter)
+EST_MEAS_NOISE = 0.0001
+
+# Max seconds before declaring the ball officially lost
+EST_LOST_TIMEOUT = 0.35
+
+# ==============================================================================
+# Feedback Controller (PD / PID) Parameters
+# ==============================================================================
+# Command: gx = -(Kp * error_x + Ki * int_error_x + Kd * vx)
+# Start testing with Stage 6: P-only (CTRL_KP = 0.4 - 0.6, CTRL_KD = 0)
+# Then Stage 7: add Kd (CTRL_KD = 0.25 - 0.45) to damp oscillations
+CTRL_KP = 0.55       # Proportional gain
+CTRL_KD = 0.35       # Derivative gain
+CTRL_KI = 0.02       # Integral gain (eliminates steady-state bias)
+
+# Maximum tilt magnitude in [0, 1] (0.70 * 15 deg = ~10.5 degrees maximum tilt)
+CTRL_MAX_TILT = 0.70
+
+# Error deadband around center in normalized plate units (2.5% of plate radius)
+CTRL_DEADBAND = 0.025
+
+# Slew-rate limit: maximum tilt command change per second (prevents jerk)
+CTRL_MAX_SLEW = 4.0
+

@@ -16,8 +16,12 @@ Keys in the "Vision" window:
     click (normal mode) = sample the ball colour
     q  = quit
 """
-import cv2
-import numpy as np
+try:
+    import cv2
+    import numpy as np
+except ImportError:
+    cv2 = None
+    np = None
 import json
 import math
 import sys
@@ -61,7 +65,13 @@ def make_mask(hsv, c, t):
 
 class BallTracker:
     def __init__(self, dev=0, w=640, h=480, fps=30):
+        if cv2 is None or np is None:
+            raise RuntimeError("OpenCV (cv2) or NumPy is not installed. Run inside the Raspberry Pi virtual environment or install python3-opencv.")
+
+        # Try V4L2 backend first (standard on Linux/Raspberry Pi), fall back to default
         self.cap = cv2.VideoCapture(dev, cv2.CAP_V4L2)
+        if not self.cap.isOpened():
+            self.cap = cv2.VideoCapture(dev)
         self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"YUYV"))
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)

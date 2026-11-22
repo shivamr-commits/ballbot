@@ -32,6 +32,9 @@ The user works **step by step**, runs each step, then reports the terminal outpu
 | Servo angle mapping | **500 to 2500 us = 0 to 180 degrees** (confirmed working in the user's interactive `servo_move.py`). **0 degrees = arm upright (corner up), 90 degrees = arm down.** Free range 0 to 90. So `DIR = -1` (bigger angle lowers the corner). |
 | Stage 2 (tilt mixing: `config.py`, `servos.py`, `plate.py`, `plate_test.py`) | Written, config in **degrees**. Not yet reported as tested. `LEVEL_DEG` in `config.py` must hold the user's real level angles. |
 | Stage 3 (vision on the plate: `vision.py`) | Written and tested on synthetic frames (correct plate coordinates under rotation and mirroring; off-plate blobs rejected). Not yet run on the Pi. User asked to move on before reporting Stage 2 results. |
+| Stage 5 (estimator & logger: `estimator.py`, `log_ball.py`) | **Fully Implemented.** 2D Kalman filter for latency compensation and smooth velocity estimation; CSV logging testbench. |
+| Stages 6 & 7 (feedback controller: `controller.py`) | **Fully Implemented.** 2D PD/PID controller with error deadband, integrator anti-windup, saturation, and slew-rate limiting. |
+| Stage 8 (closed-loop balancing: `balance.py`) | **Fully Implemented.** Real-time balancing loop with safe ball-lost leveling, live hotkey tuning, setpoint trajectories, and headless support. |
 
 ---
 
@@ -572,6 +575,46 @@ Stage 3 details (`vision.py`): class `BallTracker(dev)`; `read()` returns `{t, f
 Camera decision (confirmed): the user will use ONLY the "USB 2.0 Camera" (Microdia 0c45:62f1), not the C270. Its only controls are brightness, contrast, saturation, hue, gamma, power_line_frequency (50 Hz), sharpness, backlight_compensation. No exposure, gain or white balance control. Formats: YUYV only, 640x480 / 352x288 / 320x240 / 176x144 / 160x120, each advertising 5 to 60 fps. Measured with `v4l2-ctl --stream-mmap` at 640x480: **19.9 fps** (backlight_compensation=0). `vision.py` measured only 10 fps at 640x480, so frames were being lost in the code path. Use `cam_setup_usb2.sh` (not `cam_setup.sh`). `vision.py` now takes `[device] [width] [height] [fps]`, processes at 320 px wide, prints processing time per frame, and rescales an old plate calibration to the new resolution. Bright, steady lighting is the main way to keep the frame rate up.
 
 `level_cal.py`: holds all three servos and nudges each in degrees (a/d = corner up/down 1 deg, u/j = whole plate up/down); prints the `LEVEL_DEG` line for `config.py`.
+
+### Stage 5: State Estimation & Logging (`estimator.py`, `log_ball.py`)
+- `estimator.py`: Implements `BallEstimator` using a continuous-discrete kinematic 2D Kalman filter. Filters spatial quantization and camera noise while computing low-noise velocities $(v_x, v_y)$ with dynamic $\Delta t$ and dropped-frame coasting.
+- `log_ball.py`: Testbench for Stage 5. Records $(t, x, y, v_x, v_y, \text{speed})$ to CSV.
+```bash
+bash cam_setup_usb2.sh
+python log_ball.py 0 320 240 30
+# Or headless:
+python log_ball.py 0 320 240 30 --headless --output test_run.csv
+```
+Roll the ball manually across the plate. Verify in the GUI/log that velocities are smooth and responsive without high-frequency spikes.
+
+### Stages 6 & 7: Feedback Controller (`controller.py`)
+- Implements 2D PD/PID feedback: $g_x = -(K_p \cdot e_x + K_i \cdot \int e_x dt + K_d \cdot v_x)$.
+- Features: deadband near center, anti-windup conditional integration, vector magnitude saturation, slew-rate limiting, and dynamic setpoint trajectories.
+- **Stage 6 (P-only test):** Run with `--p-only` or press `p` in GUI. Low gain ($K_p \approx 0.4 - 0.5$). The ball will oscillate back and forth around the center.
+- **Stage 7 (PD tuning):** Restore PD mode (`d` in GUI). Increase $K_d$ ($0.25 - 0.45$) until oscillations are critically damped and the ball settles at the center.
+
+### Stage 8: Closed-Loop Balancing (`balance.py`)
+The primary system application. Connects vision, Kalman estimator, PID controller, kinematics, and servos.
+```bash
+bash cam_setup_usb2.sh
+python balance.py 0 320 240 30
+```
+- **Failsafe:** If the ball rolls off or is lost for $> 0.35$ s, state transitions to `BALL_LOST` and the plate smoothly returns to level.
+- **Hotkeys in GUI:**
+  - `q`: Safe shutdown (levels plate, stops pulses, cleans up GPIO).
+  - `l`: Force level.
+  - `p`: Toggle P-only mode (Stage 6).
+  - `d`: Restore PD mode (Stage 7).
+  - `s`: Cycle setpoint patterns (`CENTER` $\to$ `CIRCLE` $\to$ `STEP_X` $\to$ `STEP_Y`).
+  - `+` / `-`: Increase / decrease $K_p$ by 0.05.
+  - `]` / `[`: Increase / decrease $K_d$ by 0.05.
+  - `r`: Reset controller integrators.
+- **Command-line flags:**
+  - `--headless`: Run without OpenCV GUI (for SSH sessions).
+  - `--log`: Save full run telemetry to CSV.
+  - `--p-only`: Start directly in P-only test mode.
+  - `--kp <val>`, `--kd <val>`, `--ki <val>`, `--max-tilt <val>`: Gain overrides.
+  - `--mock`: Dry-run without Raspberry Pi hardware.
 
 Open questions: exact servo positions around the plate (`ANGLE`), camera mounting (above, fixed to frame?), plate shape and size, ball colour.
 
