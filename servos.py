@@ -2,23 +2,34 @@ import lgpio
 import config as C
 
 
+def angle_to_pulse(angle):
+    """0-180 degrees -> 500-2500 us (same as the working interactive script)."""
+    return int(C.MIN_PULSE + (angle / 180.0) * (C.MAX_PULSE - C.MIN_PULSE))
+
+
 class Servos:
+    """Holds all three servos. Unlike the interactive script, pulses keep running
+    so the servos hold the plate; they stop only in close()."""
+
     def __init__(self):
         self.h = lgpio.gpiochip_open(0)
         for p in C.PINS:
             lgpio.gpio_claim_output(self.h, p)
+        self.angles = [None, None, None]
         self.pulses = [None, None, None]
 
-    def write(self, pulses):
-        for i, p in enumerate(pulses):
-            p = int(max(C.MIN_US[i], min(C.MAX_US[i], p)))   # never leave the safe range
-            if p != self.pulses[i]:                            # only resend when it changes
+    def write(self, angles):
+        for i, a in enumerate(angles):
+            a = max(C.MIN_DEG[i], min(C.MAX_DEG[i], a))   # never leave the free range
+            p = angle_to_pulse(a)
+            if p != self.pulses[i]:                        # only resend when it changes
                 lgpio.tx_servo(self.h, C.PINS[i], p)
                 self.pulses[i] = p
-        return list(self.pulses)
+            self.angles[i] = round(a, 1)
+        return list(self.angles)
 
     def level(self):
-        return self.write(C.LEVEL)
+        return self.write(C.LEVEL_DEG)
 
     def close(self):
         for p in C.PINS:

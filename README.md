@@ -29,7 +29,8 @@ The user works **step by step**, runs each step, then reports the terminal outpu
 | GitHub repo, pushed from laptop, cloned on Pi | Working (confirmed) |
 | Servos 1, 2, 3 (MG996R on physical pins 11, 13, 15) | All connected and tested. Free movement 0 to 90 degrees. User reports all three calibrated (confirmed). Section 9 is now history. |
 | Project goal | **Ball balancing plate** driven by 3 servos (see section 16 for the staged plan). |
-| Stage 2 (tilt mixing: `config.py`, `servos.py`, `plate.py`, `plate_test.py`) | Written. Not yet reported as tested. `config.py` must hold the user's real calibrated values. |
+| Servo angle mapping | **500 to 2500 us = 0 to 180 degrees** (confirmed working in the user's interactive `servo_move.py`). **0 degrees = arm upright (corner up), 90 degrees = arm down.** Free range 0 to 90. So `DIR = -1` (bigger angle lowers the corner). |
+| Stage 2 (tilt mixing: `config.py`, `servos.py`, `plate.py`, `plate_test.py`) | Written, config in **degrees**. Not yet reported as tested. `LEVEL_DEG` in `config.py` must hold the user's real level angles. |
 
 ---
 
@@ -561,7 +562,9 @@ Axes: stand in front of the robot looking down. +x = right, +y = away from you. 
 | 7 | Add D, tune | Ball settles near centre |
 | 8 | Small I, ball-lost levelling, headless, setpoint paths (`balance.py`) | Holds 1 minute, recovers from a nudge |
 
-Stage 2 debugging: one corner wrong → flip its `DIR`; one axis mirrored → swap two `ANGLE` entries; all directions off by about 120 degrees → rotate the `ANGLE` list; moves too small or large → `US_PER_UNIT` (150 to 300).
+Stage 2 debugging: one corner wrong → flip its `DIR`; one axis mirrored → swap two `ANGLE` entries; all directions off by about 120 degrees → rotate the `ANGLE` list; moves too small or large → `DEG_PER_UNIT` (10 to 25).
+
+Note: `servo_move.py` stops pulses after each move (servo goes limp). The balancer cannot do that: `Servos` keeps pulses running so the plate is held. If holding causes buzzing, that is software PWM jitter from `lgpio`; the fix is a PCA9685 board.
 
 Open questions: exact servo positions around the plate (`ANGLE`), camera mounting (above, fixed to frame?), plate shape and size, ball colour.
 
