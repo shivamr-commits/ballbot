@@ -1,3 +1,5 @@
 venv/
-hsv.json
 __pycache__/
+hsv.json
+servo_cal.json
+*.csv

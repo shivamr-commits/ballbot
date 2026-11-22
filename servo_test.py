@@ -1,21 +1,16 @@
-import pigpio
+import lgpio
 import time
 
-# Servo signal wire on GPIO17 (physical pin 11)
-PIN = 17
+PIN = 17  # GPIO17 = physical pin 11
 
-pi = pigpio.pi()
-if not pi.connected:
-    print("Cannot reach pigpiod. Run: sudo systemctl enable --now pigpiod")
-    raise SystemExit(1)
+h = lgpio.gpiochip_open(0)
+lgpio.gpio_claim_output(h, PIN)
 
-# Pulse width in microseconds: 1500 = center.
-# Start with a narrow, safe range (1000-2000) so the servo does not hit its end stops.
-CENTER, LEFT, RIGHT = 1500, 1000, 2000
+CENTER, LEFT, RIGHT = 1500, 1000, 2000  # pulse width in microseconds
 
 
 def move(pulse, wait=1.5):
-    pi.set_servo_pulsewidth(PIN, pulse)
+    lgpio.tx_servo(h, PIN, pulse)  # 50 Hz servo pulse
     time.sleep(wait)
 
 
@@ -29,6 +24,6 @@ try:
     print("Back to center")
     move(CENTER)
 finally:
-    pi.set_servo_pulsewidth(PIN, 0)   # stop sending pulses
-    pi.stop()
+    lgpio.tx_servo(h, PIN, 0)  # stop pulses
+    lgpio.gpiochip_close(h)
     print("Done")
