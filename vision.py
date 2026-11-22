@@ -33,10 +33,10 @@ PROC_W = 320         # frames are processed at this width (smaller = faster)
 # Defaults for the three detection settings. All three have live sliders in the
 # "Controls" window and are saved to hsv.json with the colour.
 MIN_AREA = 25        # minimum blob area (in processed pixels)
-MIN_CIRC = 0.40      # minimum roundness (1.0 = full circle, half a ball is about 0.75,
-                     # a smaller sliver less). Lower = accepts more cut-off balls.
-EDGE_LIMIT = 2.0     # ignore blobs further than this from the centre (1.0 = the drawn
-                     # oval). 0 = no limit.
+MAX_AREA = 1200      # maximum blob area (rejects large chassis/body parts)
+MIN_CIRC = 0.40      # minimum roundness (1.0 = full circle, half a ball is about 0.75)
+EDGE_LIMIT = 1.8     # ignore blobs further than this from the centre (1.0 = plate edge)
+MIN_SAT = 80         # minimum saturation floor: eliminates white/grey/black 3D printed body!
 
 
 def load(path, default):
@@ -47,16 +47,23 @@ def load(path, default):
         return default
 
 
-def make_mask(hsv, c, t):
+def make_mask(hsv, c, t, min_sat=MIN_SAT):
+    """Generates a binary mask for the ball.
+    min_sat acts as a hard saturation floor, strictly excluding white/grey/black objects
+    (which have S < 40) so only vivid neon/saturated colours are detected.
+    """
     h, s, v = c
-    slo, shi = max(s - t[1], 0), min(s + t[1], 255)
-    vlo, vhi = max(v - t[2], 0), min(v + t[2], 255)
+    # Saturation floor: neon colors have S > 100; white 3D prints have S < 30.
+    slo = max(s - t[1], min_sat)
+    shi = min(s + t[1], 255)
+    vlo = max(v - t[2], 50)     # avoid deep black shadows
+    vhi = min(v + t[2], 255)
     hlo, hhi = h - t[0], h + t[0]
 
     def rng(a, b):
         return cv2.inRange(hsv, np.array([a, slo, vlo]), np.array([b, shi, vhi]))
 
-    if hlo < 0:                      # red wraps around 0
+    if hlo < 0:                      # red/orange hue wraps around 0
         return rng(0, hhi) | rng(180 + hlo, 179)
     if hhi > 179:
         return rng(hlo, 179) | rng(0, hhi - 180)
@@ -88,8 +95,10 @@ class BallTracker:
 
         c = load(HSV_FILE, {})
         self.center = c.get("center")          # ball colour [h, s, v]
-        self.tol = c.get("tol", [10, 70, 70])
+        self.tol = c.get("tol", [12, 60, 60])
+        self.min_sat = c.get("min_sat", MIN_SAT)
         self.min_area = c.get("min_area", MIN_AREA)
+        self.max_area = c.get("max_area", MAX_AREA)
         self.min_circ = c.get("min_circ", MIN_CIRC)
         self.edge_limit = c.get("edge_limit", EDGE_LIMIT)
         self.kernel = np.ones((3, 3), np.uint8)
@@ -144,7 +153,7 @@ class BallTracker:
             self.debug = "no ball colour yet: click on the ball"
             return res
 
-        mask = make_mask(self.hsv, self.center, self.tol)
+        mask = make_mask(self.hsv, self.center, self.tol, min_sat=self.min_sat)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, self.kernel, iterations=1)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, self.kernel, iterations=2)
         self.mask = mask
@@ -161,6 +170,8 @@ class BallTracker:
             dist = math.hypot(*self.to_plate(u, v)) if self.inv is not None else 0
             if area < self.min_area:
                 why = "too small (lower 'Min area')"
+            elif area > self.max_area:
+                why = "too large (chassis/body, raise 'Max area' if ball)"
             elif circ < self.min_circ:
                 why = "not round enough (lower 'Round %')"
             elif self.edge_limit > 0 and dist > self.edge_limit:
@@ -189,8 +200,9 @@ class BallTracker:
     def save_colour(self):
         with open(HSV_FILE, "w") as f:
             json.dump({"center": self.center, "tol": self.tol,
-                       "min_area": self.min_area, "min_circ": self.min_circ,
-                       "edge_limit": self.edge_limit}, f)
+                       "min_area": self.min_area, "max_area": self.max_area,
+                       "min_circ": self.min_circ, "edge_limit": self.edge_limit,
+                       "min_sat": self.min_sat}, f)
 
     def close(self):
         self.cap.release()
@@ -225,8 +237,16 @@ if __name__ == "__main__":
             su, sv = int(u * bt.scale), int(v * bt.scale)
             patch = bt.hsv[max(sv - 3, 0):sv + 4, max(su - 3, 0):su + 4].reshape(-1, 3)
             bt.center = [int(x) for x in np.median(patch, axis=0)]
+            sampled_sat = bt.center[1]
+            # If ball is saturated (neon), set Min Sat well above white body (S<35)
+            if sampled_sat > 70:
+                bt.min_sat = max(60, min(140, int(sampled_sat * 0.55)))
+                try:
+                    cv2.setTrackbarPos("Min Sat", "Controls", bt.min_sat)
+                except Exception:
+                    pass
             bt.save_colour()
-            print("Ball colour HSV:", bt.center)
+            print(f"Ball colour HSV: {bt.center} | Min Saturation floor set to: {bt.min_sat} (white body excluded)")
 
     cv2.namedWindow("Vision")
     cv2.setMouseCallback("Vision", on_click)
@@ -234,18 +254,22 @@ if __name__ == "__main__":
     cv2.createTrackbar("H tol", "Controls", bt.tol[0], 40, lambda x: None)
     cv2.createTrackbar("S tol", "Controls", bt.tol[1], 127, lambda x: None)
     cv2.createTrackbar("V tol", "Controls", bt.tol[2], 127, lambda x: None)
+    cv2.createTrackbar("Min Sat", "Controls", int(bt.min_sat), 220, lambda x: None)
     cv2.createTrackbar("Round %", "Controls", int(bt.min_circ * 100), 100, lambda x: None)
     cv2.createTrackbar("Edge x10", "Controls", int(bt.edge_limit * 10), 40, lambda x: None)
     cv2.createTrackbar("Min area", "Controls", int(bt.min_area), 300, lambda x: None)
+    cv2.createTrackbar("Max area", "Controls", int(bt.max_area), 4000, lambda x: None)
 
     fps, prev, last_print, lost = 0.0, time.time(), 0.0, 0
     font = cv2.FONT_HERSHEY_SIMPLEX
     try:
         while True:
             bt.tol = [cv2.getTrackbarPos(n, "Controls") for n in ("H tol", "S tol", "V tol")]
+            bt.min_sat = cv2.getTrackbarPos("Min Sat", "Controls")
             bt.min_circ = cv2.getTrackbarPos("Round %", "Controls") / 100
             bt.edge_limit = cv2.getTrackbarPos("Edge x10", "Controls") / 10
             bt.min_area = cv2.getTrackbarPos("Min area", "Controls")
+            bt.max_area = max(bt.min_area + 50, cv2.getTrackbarPos("Max area", "Controls"))
             res = bt.read()
             if res is None:
                 print("Failed to read a frame.")
@@ -301,6 +325,38 @@ if __name__ == "__main__":
             if k == ord('p'):
                 state["mode"], state["clicks"] = "plate", []
                 print("Plate calibration: click", STEPS[0])
+            elif k == ord('1'):
+                # Preset 1: Neon Green
+                bt.center = [55, 200, 200]
+                bt.tol = [18, 65, 65]
+                bt.min_sat = 85
+                cv2.setTrackbarPos("H tol", "Controls", bt.tol[0])
+                cv2.setTrackbarPos("Min Sat", "Controls", bt.min_sat)
+                print("Applied Preset: NEON GREEN (HSV [55, 200, 200], Min Sat 85)")
+            elif k == ord('2'):
+                # Preset 2: Neon Yellow
+                bt.center = [30, 210, 220]
+                bt.tol = [12, 55, 55]
+                bt.min_sat = 90
+                cv2.setTrackbarPos("H tol", "Controls", bt.tol[0])
+                cv2.setTrackbarPos("Min Sat", "Controls", bt.min_sat)
+                print("Applied Preset: NEON YELLOW (HSV [30, 210, 220], Min Sat 90)")
+            elif k == ord('3'):
+                # Preset 3: Neon Orange
+                bt.center = [12, 215, 220]
+                bt.tol = [10, 50, 50]
+                bt.min_sat = 95
+                cv2.setTrackbarPos("H tol", "Controls", bt.tol[0])
+                cv2.setTrackbarPos("Min Sat", "Controls", bt.min_sat)
+                print("Applied Preset: NEON ORANGE (HSV [12, 215, 220], Min Sat 95)")
+            elif k == ord('4'):
+                # Preset 4: Neon Pink
+                bt.center = [170, 190, 210]
+                bt.tol = [14, 60, 60]
+                bt.min_sat = 80
+                cv2.setTrackbarPos("H tol", "Controls", bt.tol[0])
+                cv2.setTrackbarPos("Min Sat", "Controls", bt.min_sat)
+                print("Applied Preset: NEON PINK (HSV [170, 190, 210], Min Sat 80)")
     finally:
         bt.save_colour()
         bt.close()
