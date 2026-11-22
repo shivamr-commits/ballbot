@@ -13,7 +13,7 @@ MIN_PULSE = 500
 MAX_PULSE = 2500
 
 # Servo angles in DEGREES. 0 = arm upright (corner up), 90 = arm down (corner down).
-LEVEL_DEG = [45, 45, 45]   # angle where the plate is level, per servo  <-- PUT YOUR VALUES
+LEVEL_DEG = [21, 30, 30]   # calibrated level angles: Servo 1 = 21 deg, Servos 2 & 3 = 30 deg
 MIN_DEG   = [0, 0, 0]      # free movement range per servo
 MAX_DEG   = [90, 90, 90]
 
