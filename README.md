@@ -31,6 +31,7 @@ The user works **step by step**, runs each step, then reports the terminal outpu
 | Project goal | **Ball balancing plate** driven by 3 servos (see section 16 for the staged plan). |
 | Servo angle mapping | **500 to 2500 us = 0 to 180 degrees** (confirmed working in the user's interactive `servo_move.py`). **0 degrees = arm upright (corner up), 90 degrees = arm down.** Free range 0 to 90. So `DIR = -1` (bigger angle lowers the corner). |
 | Stage 2 (tilt mixing: `config.py`, `servos.py`, `plate.py`, `plate_test.py`) | Written, config in **degrees**. Not yet reported as tested. `LEVEL_DEG` in `config.py` must hold the user's real level angles. |
+| Stage 3 (vision on the plate: `vision.py`) | Written and tested on synthetic frames (correct plate coordinates under rotation and mirroring; off-plate blobs rejected). Not yet run on the Pi. User asked to move on before reporting Stage 2 results. |
 
 ---
 
@@ -565,6 +566,8 @@ Axes: stand in front of the robot looking down. +x = right, +y = away from you. 
 Stage 2 debugging: one corner wrong → flip its `DIR`; one axis mirrored → swap two `ANGLE` entries; all directions off by about 120 degrees → rotate the `ANGLE` list; moves too small or large → `DEG_PER_UNIT` (10 to 25).
 
 Note: `servo_move.py` stops pulses after each move (servo goes limp). The balancer cannot do that: `Servos` keeps pulses running so the plate is held. If holding causes buzzing, that is software PWM jitter from `lgpio`; the fix is a PCA9685 board.
+
+Stage 3 details (`vision.py`): class `BallTracker(dev)`; `read()` returns `{t, found, u, v, r, x, y}` with x, y in plate units (0 at centre, +1 at the right / far edge). Plate calibration = press `p` and click centre, right edge (+x), far edge (+y); saved to `plate_cal.json` (local, gitignored). The 3-click map handles camera rotation, mirroring and unequal scale. Ball colour = click the ball (saved to `hsv.json`, with tolerance sliders). Processing at half resolution (`SCALE = 0.5`). No smoothing in the tracker: the controller filters. `EDGE_LIMIT` (1.3) rejects blobs off the plate; raise to about 2.0 for a triangular plate.
 
 Open questions: exact servo positions around the plate (`ANGLE`), camera mounting (above, fixed to frame?), plate shape and size, ball colour.
 
